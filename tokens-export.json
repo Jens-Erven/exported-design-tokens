@@ -6,7 +6,7 @@
           "primary": {
             "$scopes": ["ALL_SCOPES"],
             "$type": "color",
-            "$value": "#009990"
+            "$value": "#009996"
           },
           "primary-contrast": {
             "$scopes": ["ALL_SCOPES"],
@@ -850,4 +850,3 @@
     }
   }
 ]
-
