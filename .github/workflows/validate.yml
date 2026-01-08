@@ -1,0 +1,98 @@
+name: Validate Tokens
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "tokens-export.json"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "tokens-export.json"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Validate JSON syntax
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('tokens-export.json', 'utf8')); console.log('✅ JSON syntax is valid');"
+
+      - name: Validate token structure
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('tokens-export.json', 'utf8'));
+
+          // Check if it's an array
+          if (!Array.isArray(data)) {
+            console.error('❌ Error: tokens-export.json must be an array');
+            process.exit(1);
+          }
+
+          // Check if at least one theme exists
+          if (data.length === 0) {
+            console.error('❌ Error: At least one theme must exist');
+            process.exit(1);
+          }
+
+          // Validate each theme
+          for (const themeObj of data) {
+            const themeName = Object.keys(themeObj)[0];
+            const theme = themeObj[themeName];
+            
+            // Check if theme has modes
+            if (!theme.modes || typeof theme.modes !== 'object') {
+              console.error(\`❌ Error: Theme \${themeName} must have a 'modes' object\`);
+              process.exit(1);
+            }
+            
+            // Check if light and dark modes exist
+            if (!theme.modes.light || !theme.modes.dark) {
+              console.error(\`❌ Error: Theme \${themeName} must have both 'light' and 'dark' modes\`);
+              process.exit(1);
+            }
+            
+            // Validate tokens in each mode
+            for (const [modeName, tokens] of Object.entries(theme.modes)) {
+              if (typeof tokens !== 'object') {
+                console.error(\`❌ Error: Theme \${themeName}, mode \${modeName} must be an object\`);
+                process.exit(1);
+              }
+              
+              // Check if tokens have required properties
+              for (const [tokenName, token] of Object.entries(tokens)) {
+                if (!token.$type || !token.hasOwnProperty('$value')) {
+                  console.error(\`❌ Error: Token \${tokenName} in \${themeName}/\${modeName} must have $type and $value properties\`);
+                  process.exit(1);
+                }
+              }
+            }
+          }
+
+          console.log('✅ Token structure is valid');
+          console.log(\`✅ Found \${data.length} theme(s)\`);
+          EOF
+
+      - name: Trigger design-token-lib build
+        if: success() && github.event_name == 'push'
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.DESIGN_TOKENS_LIB_TOKEN }}
+          repository: ${{ secrets.DESIGN_TOKENS_LIB }}
+          event-type: tokens-updated
+          client-payload: |
+            {
+              "ref": "${{ github.ref }}",
+              "sha": "${{ github.sha }}",
+              "repository": "${{ github.repository }}"
+            }
