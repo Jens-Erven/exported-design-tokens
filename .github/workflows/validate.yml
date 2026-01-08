@@ -52,27 +52,27 @@ jobs:
             
             // Check if theme has modes
             if (!theme.modes || typeof theme.modes !== 'object') {
-              console.error(\`❌ Error: Theme \${themeName} must have a 'modes' object\`);
+              console.error(`❌ Error: Theme ${themeName} must have a 'modes' object`);
               process.exit(1);
             }
             
             // Check if light and dark modes exist
             if (!theme.modes.light || !theme.modes.dark) {
-              console.error(\`❌ Error: Theme \${themeName} must have both 'light' and 'dark' modes\`);
+              console.error(`❌ Error: Theme ${themeName} must have both 'light' and 'dark' modes`);
               process.exit(1);
             }
             
             // Validate tokens in each mode
             for (const [modeName, tokens] of Object.entries(theme.modes)) {
               if (typeof tokens !== 'object') {
-                console.error(\`❌ Error: Theme \${themeName}, mode \${modeName} must be an object\`);
+                console.error(`❌ Error: Theme ${themeName}, mode ${modeName} must be an object`);
                 process.exit(1);
               }
               
               // Check if tokens have required properties
               for (const [tokenName, token] of Object.entries(tokens)) {
                 if (!token.$type || !token.hasOwnProperty('$value')) {
-                  console.error(\`❌ Error: Token \${tokenName} in \${themeName}/\${modeName} must have $type and $value properties\`);
+                  console.error(`❌ Error: Token ${tokenName} in ${themeName}/${modeName} must have $type and $value properties`);
                   process.exit(1);
                 }
               }
@@ -80,7 +80,7 @@ jobs:
           }
 
           console.log('✅ Token structure is valid');
-          console.log(\`✅ Found \${data.length} theme(s)\`);
+          console.log(`✅ Found ${data.length} theme(s)`);
           EOF
 
       - name: Trigger design-token-lib build
