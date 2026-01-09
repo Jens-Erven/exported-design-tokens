@@ -4,16 +4,74 @@ on:
   push:
     branches: [main, master]
     paths:
-      - "tokens-export.json"
+      - "brands/**/*-tokens.json"
   pull_request:
     branches: [main, master]
     paths:
-      - "tokens-export.json"
+      - "brands/**/*-tokens.json"
 
 jobs:
-  validate:
+  detect-brands:
     runs-on: ubuntu-latest
+    outputs:
+      brands: ${{ steps.detect.outputs.brands }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
+      - name: Detect changed brand files
+        id: detect
+        run: |
+          # Get changed files
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD | grep -E 'brands/.*-tokens\.json$' || true)
+          else
+            CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR HEAD~1 HEAD | grep -E 'brands/.*-tokens\.json$' || true)
+          fi
+
+          # Extract brand names from filenames (e.g., brands/brio-tokens.json -> brio)
+          BRANDS_JSON="["
+          FIRST=true
+          for file in $CHANGED_FILES; do
+            if [ -n "$file" ]; then
+              BRAND=$(basename "$file" | sed 's/-tokens\.json$//')
+              if [ "$FIRST" = true ]; then
+                BRANDS_JSON="${BRANDS_JSON}\"${BRAND}\""
+                FIRST=false
+              else
+                BRANDS_JSON="${BRANDS_JSON},\"${BRAND}\""
+              fi
+            fi
+          done
+
+          # If no changed files detected, check all brand files in the repo
+          if [ "$BRANDS_JSON" = "[" ]; then
+            for file in brands/*-tokens.json; do
+              if [ -f "$file" ]; then
+                BRAND=$(basename "$file" | sed 's/-tokens\.json$//')
+                if [ "$FIRST" = true ]; then
+                  BRANDS_JSON="${BRANDS_JSON}\"${BRAND}\""
+                  FIRST=false
+                else
+                  BRANDS_JSON="${BRANDS_JSON},\"${BRAND}\""
+                fi
+              fi
+            done
+          fi
+
+          BRANDS_JSON="${BRANDS_JSON}]"
+          echo "brands=$BRANDS_JSON" >> $GITHUB_OUTPUT
+          echo "Detected brands: $BRANDS_JSON"
+
+  validate:
+    needs: detect-brands
+    runs-on: ubuntu-latest
+    if: needs.detect-brands.outputs.brands != '[]'
+    strategy:
+      matrix:
+        brand: ${{ fromJson(needs.detect-brands.outputs.brands) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,23 +83,36 @@ jobs:
 
       - name: Validate JSON syntax
         run: |
-          node -e "JSON.parse(require('fs').readFileSync('tokens-export.json', 'utf8')); console.log('✅ JSON syntax is valid');"
+          BRAND_FILE="brands/${{ matrix.brand }}-tokens.json"
+          if [ ! -f "$BRAND_FILE" ]; then
+            echo "❌ Error: Brand file $BRAND_FILE not found"
+            exit 1
+          fi
+          node -e "JSON.parse(require('fs').readFileSync('$BRAND_FILE', 'utf8')); console.log('✅ JSON syntax is valid for ${{ matrix.brand }}');"
 
       - name: Validate token structure
         run: |
           node << 'EOF'
           const fs = require('fs');
-          const data = JSON.parse(fs.readFileSync('tokens-export.json', 'utf8'));
+          const brand = '${{ matrix.brand }}';
+          const brandFile = `brands/${brand}-tokens.json`;
+
+          if (!fs.existsSync(brandFile)) {
+            console.error(`❌ Error: Brand file ${brandFile} not found`);
+            process.exit(1);
+          }
+
+          const data = JSON.parse(fs.readFileSync(brandFile, 'utf8'));
 
           // Check if it's an array
           if (!Array.isArray(data)) {
-            console.error('❌ Error: tokens-export.json must be an array');
+            console.error(`❌ Error: ${brandFile} must be an array`);
             process.exit(1);
           }
 
           // Check if at least one theme exists
           if (data.length === 0) {
-            console.error('❌ Error: At least one theme must exist');
+            console.error(`❌ Error: At least one theme must exist in ${brandFile}`);
             process.exit(1);
           }
 
@@ -79,8 +150,8 @@ jobs:
             }
           }
 
-          console.log('✅ Token structure is valid');
-          console.log(`✅ Found ${data.length} theme(s)`);
+          console.log(`✅ Token structure is valid for brand: ${brand}`);
+          console.log(`✅ Found ${data.length} theme(s) in ${brand}`);
           EOF
 
       - name: Trigger design-token-lib build
@@ -92,6 +163,7 @@ jobs:
           event-type: tokens-updated
           client-payload: |
             {
+              "brand": "${{ matrix.brand }}",
               "ref": "${{ github.ref }}",
               "sha": "${{ github.sha }}",
               "repository": "${{ github.repository }}"
